@@ -1,0 +1,63 @@
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - ./data/redis:/data
+    command: ["redis-server", "--appendonly", "yes"]
+
+  api:
+    build:
+      context: ./api
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: sqlite:////data/subs.db
+      REDIS_URL: redis://redis:6379/0
+      DATA_DIR: /data
+    volumes:
+      - ./api:/app
+      - ./data:/data
+      # Library mount — adjust to your host. Read-write so we can write subs.
+      - ${LIBRARY_HOST_PATH:-/your/media/path}:/library
+      # Symlink targets must be reachable inside the container.
+      - ${RAW_HOST_PATH:-/your/media/raw/path}:/raw
+    depends_on:
+      - redis
+    ports:
+      - "8000:8000"
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  worker:
+    build:
+      context: ./api
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: sqlite:////data/subs.db
+      REDIS_URL: redis://redis:6379/0
+      DATA_DIR: /data
+    volumes:
+      - ./api:/app
+      - ./data:/data
+      - ${LIBRARY_HOST_PATH:-/your/media/path}:/library
+      - ${RAW_HOST_PATH:-/your/media/raw/path}:/raw
+    depends_on:
+      - redis
+    command: arq app.workers.queue.WorkerSettings
+
+  web:
+    build:
+      context: ./web
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Inside Docker the API is reachable via the service name, not localhost.
+      # This overrides whatever VITE_API_BASE is set to in .env.
+      VITE_API_BASE: http://api:8000
+    volumes:
+      - ./web:/app
+      - /app/node_modules
+    ports:
+      - "5173:5173"
+    command: npm run dev -- --host 0.0.0.0
