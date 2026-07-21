@@ -176,3 +176,70 @@ def test_embedded_sub_languages_in_summary(client, session):
     s = listed[0]
     assert s["embedded_sub_languages"] == ["de", "en"]
     assert s["embedded_sub_count"] == 2
+
+
+def test_summary_new_fields_empty_for_movie_with_no_files(client, session):
+    m = Movie(folder_path="/library/Empty (2022)", title="Empty", year=2022)
+    session.add(m)
+    session.commit()
+
+    listed = client.get("/movies/").json()
+    assert len(listed) == 1
+    s = listed[0]
+    assert s["video_formats"] == []
+    assert s["subtitle_formats"] == []
+
+
+def test_video_formats_from_video_file_containers(client, session):
+    m = Movie(folder_path="/library/Fmt (2023)", title="Fmt", year=2023)
+    session.add(m)
+    session.commit()
+    session.refresh(m)
+
+    session.add(VideoFile(
+        movie_id=m.id,
+        path="/library/Fmt (2023)/Fmt (2023).mkv",
+        real_path="/library/Fmt (2023)/Fmt (2023).mkv",
+        filename="Fmt (2023).mkv",
+        container="mkv",
+    ))
+    session.commit()
+
+    listed = client.get("/movies/").json()
+    assert listed[0]["video_formats"] == ["mkv"]
+
+
+def test_subtitle_formats_combine_external_and_normalized_embedded(client, session):
+    """subtitle_formats unions external sub formats with normalized embedded codec names."""
+    m = Movie(folder_path="/library/Mix (2024)", title="Mix", year=2024)
+    session.add(m)
+    session.commit()
+    session.refresh(m)
+
+    vf = VideoFile(
+        movie_id=m.id,
+        path="/library/Mix (2024)/Mix (2024).mkv",
+        real_path="/library/Mix (2024)/Mix (2024).mkv",
+        filename="Mix (2024).mkv",
+        container="mkv",
+    )
+    session.add(vf)
+    session.commit()
+    session.refresh(vf)
+
+    session.add(EmbeddedSubtitle(video_file_id=vf.id, track_index=1, codec="subrip", language="en"))
+    session.add(ExternalSubtitle(
+        movie_id=m.id,
+        path="/library/Mix (2024)/Mix (2024).es.ass",
+        real_path="/library/Mix (2024)/Mix (2024).es.ass",
+        filename="Mix (2024).es.ass",
+        language="es",
+        language_source="filename",
+        format="ass",
+        source=SubSource.preexisting,
+        created_at=datetime.now(timezone.utc),
+    ))
+    session.commit()
+
+    listed = client.get("/movies/").json()
+    assert listed[0]["subtitle_formats"] == ["ass", "srt"]

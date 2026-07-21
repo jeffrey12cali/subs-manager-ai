@@ -15,6 +15,21 @@ from app.schemas import (
 
 router = APIRouter()
 
+# Normalize ffmpeg/mkvmerge embedded subtitle codec names to the same format
+# labels used for external subs (srt|ass|vtt|...).
+_EMBEDDED_CODEC_FORMAT = {
+    "subrip": "srt",
+    "srt": "srt",
+    "ass": "ass",
+    "ssa": "ass",
+    "webvtt": "vtt",
+    "vtt": "vtt",
+    "hdmv_pgs_subtitle": "pgs",
+    "pgs": "pgs",
+    "dvd_subtitle": "vobsub",
+    "vobsub": "vobsub",
+}
+
 
 @router.get("/", response_model=list[MovieSummary])
 def list_movies(
@@ -42,6 +57,11 @@ def list_movies(
         has_subs = bool(ext_subs) or emb_count > 0
         if missing_subs and has_subs:
             continue
+        video_formats = sorted({vf.container for vf in vfiles if vf.container})
+        subtitle_formats = sorted(
+            {s.format for s in ext_subs if s.format}
+            | {_EMBEDDED_CODEC_FORMAT.get(e.codec.lower(), e.codec.lower()) for e in all_emb if e.codec}
+        )
         summaries.append(MovieSummary(
             id=m.id,
             title=m.title,
@@ -54,6 +74,8 @@ def list_movies(
             embedded_sub_count=emb_count,
             embedded_sub_languages=emb_langs,
             has_subs=has_subs,
+            video_formats=video_formats,
+            subtitle_formats=subtitle_formats,
         ))
     return summaries
 
