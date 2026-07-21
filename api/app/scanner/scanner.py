@@ -31,6 +31,7 @@ from app.models import (
     SubSource,
     VideoFile,
 )
+from app.scanner.langdetect_op import detect_language
 from app.scanner.probe import ProbeError, ProbeRunner, probe_file
 from app.scanner.sub_name_parser import parse_subtitle_filename
 from app.scanner.walker import WalkedFile, WalkedMovie, walk_library
@@ -226,6 +227,16 @@ def _upsert_external_sub(
 
     parsed = parse_subtitle_filename(ws.path.name, f"{movie_title} ({movie.year})")
 
+    # Filename gave no language — fall back to reading the subtitle content.
+    # Skip the re-read if a previous scan already resolved a language for
+    # this file (content or filename), to avoid re-parsing on every rescan.
+    language, language_source = parsed.language, parsed.language_source
+    needs_detect = parsed.language is None and (existing is None or existing.language is None)
+    if needs_detect:
+        detected = detect_language(ws.real_path, parsed.format)
+        if detected:
+            language, language_source = detected, LanguageSource.content
+
     # Manual language overrides are sticky — don't overwrite them on rescan.
     if existing:
         sub = existing
@@ -238,8 +249,8 @@ def _upsert_external_sub(
         sub.sdh = parsed.sdh
         sub.custom_tag = parsed.custom_tag
         if sub.language_source != LanguageSource.manual:
-            sub.language = parsed.language
-            sub.language_source = parsed.language_source
+            sub.language = language
+            sub.language_source = language_source
         session.add(sub)
         return sub
 
@@ -250,8 +261,8 @@ def _upsert_external_sub(
         is_symlink=ws.is_symlink,
         filename=ws.path.name,
         rel_dir=ws.rel_dir,
-        language=parsed.language,
-        language_source=parsed.language_source,
+        language=language,
+        language_source=language_source,
         format=parsed.format,
         forced=parsed.forced,
         sdh=parsed.sdh,

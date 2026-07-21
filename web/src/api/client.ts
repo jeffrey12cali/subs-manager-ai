@@ -154,6 +154,9 @@ export function patchSub(id: number, params: PatchSubParams): Promise<ExternalSu
 export const renameSub = (id: number) =>
   api<ExternalSub>(`/subs/${id}/rename`, { method: "POST" });
 
+export const detectSubLanguage = (id: number) =>
+  api<ExternalSub>(`/subs/${id}/detect-language`, { method: "POST" });
+
 export const extractTrack = (videoFileId: number, trackIndex: number) =>
   api<Job>(`/video-files/${videoFileId}/extract/${trackIndex}`, { method: "POST" });
 

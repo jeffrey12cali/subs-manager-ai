@@ -312,6 +312,77 @@ def test_patch_missing_returns_404(client):
 
 
 # ================================================================
+# DETECT LANGUAGE
+# ================================================================
+
+SPANISH_SRT = (
+    "1\n00:00:01,000 --> 00:00:03,000\n"
+    "Buenos días, ¿cómo estás hoy? Espero que todo vaya bien contigo.\n\n"
+    "2\n00:00:04,000 --> 00:00:06,000\n"
+    "No puedo creer lo que acaba de suceder en esta habitación tan extraña.\n"
+).encode()
+
+
+def test_detect_language_sets_language_and_source(client, session, library_root: Path):
+    folder = library_root / "Foo (2024)"
+    folder.mkdir()
+    m = _make_movie(session, str(folder), "Foo", 2024)
+
+    sub_path = folder / "Foo (2024).srt"
+    sub_path.write_bytes(SPANISH_SRT)
+    sub = _make_sub(session, m, "Foo (2024).srt", language=None,
+                     language_source=LanguageSource.unknown)
+    sub.path = str(sub_path)
+    sub.real_path = str(sub_path)
+    session.add(sub)
+    session.commit()
+
+    r = client.post(f"/subs/{sub.id}/detect-language")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["language"] == "es"
+    assert body["language_source"] == "content"
+
+
+def test_detect_language_missing_file_returns_404(client, session, library_root: Path):
+    folder = library_root / "Foo (2024)"
+    folder.mkdir()
+    m = _make_movie(session, str(folder), "Foo", 2024)
+    sub = _make_sub(session, m, "Foo (2024).srt", language=None,
+                     language_source=LanguageSource.unknown)
+    sub.path = str(folder / "Foo (2024).srt")
+    sub.real_path = sub.path
+    session.add(sub)
+    session.commit()
+    # Note: file was never written to disk.
+
+    r = client.post(f"/subs/{sub.id}/detect-language")
+    assert r.status_code == 404
+
+
+def test_detect_language_empty_content_returns_422(client, session, library_root: Path):
+    folder = library_root / "Foo (2024)"
+    folder.mkdir()
+    m = _make_movie(session, str(folder), "Foo", 2024)
+
+    sub_path = folder / "Foo (2024).srt"
+    sub_path.write_text("")
+    sub = _make_sub(session, m, "Foo (2024).srt", language=None,
+                     language_source=LanguageSource.unknown)
+    sub.path = str(sub_path)
+    sub.real_path = str(sub_path)
+    session.add(sub)
+    session.commit()
+
+    r = client.post(f"/subs/{sub.id}/detect-language")
+    assert r.status_code == 422
+
+
+def test_detect_language_missing_sub_returns_404(client):
+    assert client.post("/subs/9999/detect-language").status_code == 404
+
+
+# ================================================================
 # RENAME
 # ================================================================
 

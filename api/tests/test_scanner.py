@@ -248,6 +248,56 @@ def test_manual_language_override_preserved(session, library_root: Path, make_mo
     assert sub.language_source == LanguageSource.manual
 
 
+# ---------- content-based language detection fallback ----------
+
+
+def test_scan_detects_language_from_content_when_filename_has_none(
+    session, library_root: Path, make_movie_folder
+):
+    spanish_srt = (
+        "1\n00:00:01,000 --> 00:00:03,000\n"
+        "Buenos días, ¿cómo estás hoy? Espero que todo vaya bien contigo.\n\n"
+        "2\n00:00:04,000 --> 00:00:06,000\n"
+        "No puedo creer lo que acaba de suceder en esta habitación tan extraña.\n"
+    ).encode()
+    make_movie_folder(
+        "Shutter (2004)",
+        [
+            ("Shutter (2004).mp4", b"x"),
+            ("Shutter (2004).srt", spanish_srt),  # no language token in filename
+        ],
+    )
+    scan_library(library_root, session, probe_runner=_probe_noop)
+
+    sub = session.exec(select(ExternalSubtitle)).first()
+    assert sub.language == "es"
+    assert sub.language_source == LanguageSource.content
+
+
+def test_scan_content_detection_does_not_overwrite_manual(
+    session, library_root: Path, make_movie_folder
+):
+    make_movie_folder(
+        "Foo (2024)",
+        [
+            ("Foo (2024).mp4", b"x"),
+            ("Foo (2024).srt", b"1\n00:00:01,000 --> 00:00:02,000\nHi\n"),
+        ],
+    )
+    scan_library(library_root, session, probe_runner=_probe_noop)
+
+    sub = session.exec(select(ExternalSubtitle)).first()
+    sub.language = "fr"
+    sub.language_source = LanguageSource.manual
+    session.add(sub)
+    session.commit()
+
+    scan_library(library_root, session, probe_runner=_probe_noop)
+    sub = session.exec(select(ExternalSubtitle)).first()
+    assert sub.language == "fr"
+    assert sub.language_source == LanguageSource.manual
+
+
 # ---------- non-conforming folders skipped ----------
 
 
