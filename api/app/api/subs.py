@@ -14,6 +14,7 @@ from app.core.policy import PolicyViolation, assert_can_delete_sub
 from app.core.safe_fs import atomic_write, trash
 from app.core.srt_validator import InvalidSRT, validate_srt_bytes
 from app.models import ExternalSubtitle, Job, JobStatus, JobType, LanguageSource, Movie, SubSource
+from app.scanner.langdetect_op import detect_language
 from app.scanner.naming import canonical_sub_path, is_canonical
 from app.schemas import ExternalSubRead, JobRead
 
@@ -159,6 +160,30 @@ def patch_sub(
     if custom_tag is not None:
         sub.custom_tag = custom_tag or None
 
+    session.add(sub)
+    session.commit()
+    session.refresh(sub)
+    return ExternalSubRead.model_validate(sub)
+
+
+# ---- detect language from content ----
+
+@router.post("/subs/{sub_id}/detect-language", response_model=ExternalSubRead)
+def detect_sub_language(sub_id: int, session: Session = Depends(get_session)):
+    sub = session.get(ExternalSubtitle, sub_id)
+    if not sub:
+        raise HTTPException(404, "Subtitle not found")
+
+    sub_path = Path(sub.real_path)
+    if not sub_path.exists():
+        raise HTTPException(404, f"File not found on disk: {sub.real_path}")
+
+    detected = detect_language(sub_path, sub.format)
+    if not detected:
+        raise HTTPException(422, "Could not detect language from the subtitle content.")
+
+    sub.language = detected
+    sub.language_source = LanguageSource.content
     session.add(sub)
     session.commit()
     session.refresh(sub)

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getMovie, deleteSub, extractTrack, embedSub, transcribeVideo, translateSub, translateEmbedded } from "@/api/client";
+import { getMovie, deleteSub, extractTrack, embedSub, transcribeVideo, translateSub, translateEmbedded, detectSubLanguage } from "@/api/client";
 import type { ExternalSub, VideoFile } from "@/api/client";
 import { LangBadge } from "@/components/LangBadge";
 import { UploadModal } from "@/components/UploadModal";
@@ -195,10 +195,20 @@ function ExternalSubRow({ sub, movieId, onEdit }: SubRowProps) {
   const [confirming, setConfirming] = useState(false);
   const [targetLang, setTargetLang] = useState("");
   const [translateMsg, setTranslateMsg] = useState<string | null>(null);
+  const [detectError, setDetectError] = useState<string | null>(null);
 
   const del = useMutation({
     mutationFn: () => deleteSub(sub.id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["movie", movieId] }),
+  });
+
+  const detect = useMutation({
+    mutationFn: () => detectSubLanguage(sub.id),
+    onSuccess: () => {
+      setDetectError(null);
+      qc.invalidateQueries({ queryKey: ["movie", movieId] });
+    },
+    onError: (e: Error) => setDetectError(e.message),
   });
 
   const translate = useMutation({
@@ -226,6 +236,17 @@ function ExternalSubRow({ sub, movieId, onEdit }: SubRowProps) {
         {sub.language_source === "manual" && (
           <span className="ml-1 text-xs text-blue-400" title="Manually set">✎</span>
         )}
+        {!sub.language && (
+          <button
+            onClick={() => detect.mutate()}
+            disabled={detect.isPending}
+            className="ml-1 text-xs text-neutral-500 hover:text-blue-400 disabled:opacity-40"
+            title="Detect language from subtitle content"
+          >
+            {detect.isPending ? "…" : "Detect"}
+          </button>
+        )}
+        {detectError && <p className="mt-0.5 text-xs text-red-400">{detectError}</p>}
       </td>
       <td className="py-2 pr-3 text-xs space-x-1 whitespace-nowrap">
         {sub.forced && <span className="rounded bg-orange-900 px-1 text-orange-300">forced</span>}

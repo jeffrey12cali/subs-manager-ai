@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { patchSub, renameSub } from "@/api/client";
+import { patchSub, renameSub, detectSubLanguage } from "@/api/client";
 import type { ExternalSub } from "@/api/client";
 
 interface Props {
@@ -37,6 +37,15 @@ export function EditSubModal({ sub, movieId, onClose }: Props) {
     onError: (e: Error) => setError(e.message),
   });
 
+  const detect = useMutation({
+    mutationFn: () => detectSubLanguage(sub.id),
+    onSuccess: (updated) => {
+      setLanguage(updated.language ?? "");
+      invalidate();
+    },
+    onError: (e: Error) => setError(e.message),
+  });
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
       <div className="w-full max-w-md rounded-lg border border-neutral-700 bg-neutral-900 p-6 space-y-4 shadow-xl">
@@ -46,12 +55,23 @@ export function EditSubModal({ sub, movieId, onClose }: Props) {
         <div className="space-y-3">
           <label className="block">
             <span className="text-sm text-neutral-400">Language (BCP-47)</span>
-            <input
-              type="text"
-              value={language}
-              onChange={(e) => setLanguage(e.target.value)}
-              className="mt-1 block w-full rounded border border-neutral-700 bg-neutral-800 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
+            <div className="mt-1 flex gap-2">
+              <input
+                type="text"
+                value={language}
+                onChange={(e) => setLanguage(e.target.value)}
+                className="block w-full rounded border border-neutral-700 bg-neutral-800 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+              <button
+                type="button"
+                onClick={() => detect.mutate()}
+                disabled={detect.isPending}
+                title="Detect language from subtitle content"
+                className="shrink-0 rounded border border-neutral-700 px-3 py-1.5 text-sm text-neutral-400 hover:text-neutral-200 disabled:opacity-40"
+              >
+                {detect.isPending ? "…" : "Detect"}
+              </button>
+            </div>
           </label>
 
           <label className="block">
