@@ -6,7 +6,6 @@ class Settings(BaseSettings):
 
     # Library
     library_roots: str = "/library"
-    raw_root: str = "/raw"
 
     # API
     api_host: str = "0.0.0.0"

@@ -31,7 +31,8 @@ DeepSeek.
 **Docker Compose path (recommended)**
 
 - Docker Engine 24+ and Docker Compose v2
-- The host paths to your Jellyfin movie library and raw files (for symlinks)
+- The host path to your Jellyfin movie library (and, if the library uses
+  symlinks with absolute targets, the tree those targets live in)
 
 **Local development path**
 
@@ -51,18 +52,43 @@ cd subs-manager-ai
 cp .env.example .env
 ```
 
-Edit `.env` — the two critical lines are your host library paths:
+Setting up the library takes **two** coordinated pieces — the host mount (in
+`docker-compose.yml`) and the scan roots (in `.env`).
 
-```env
-# Host path to your Jellyfin Movies folder (read-write, the app writes subs here)
-LIBRARY_HOST_PATH=/path/to/jellyfin/Movies
+**1. Mount your library into the container** — edit the `volumes:` of both the
+`api` and `worker` services in `docker-compose.yml`. Mount the top of your
+media tree at the **identical absolute path** inside the container:
 
-# Host path where symlinks inside the library resolve to (can be read-only)
-RAW_HOST_PATH=/path/to/raw/files
+```yaml
+    volumes:
+      - ./api:/app
+      - ./data:/data
+      - /media:/media          # <-- your media tree, same path both sides
 ```
 
-If your library has no symlinks, you can leave `RAW_HOST_PATH` as the default
-or point it at an empty directory.
+The identical path matters: subtitle sidecar symlinks in a Jellyfin library
+often point at **absolute** targets (e.g. `Movies/Film.mkv ->
+/media/Raw/Film/...`). They only resolve inside the container if that exact
+path exists there, so mount at `/media:/media`, not `/media:/library`.
+
+**2. Point the scanner at the folders to scan** — set `LIBRARY_ROOTS` in
+`.env` to the **container-side** paths (colon-separated):
+
+```env
+LIBRARY_ROOTS=/media/Movies
+```
+
+If your library uses symlinks with absolute targets, **also include the
+target directory** — the app's safe-fs gate only permits writes/embeds into
+declared roots, and embedding a track rewrites the real (target) file:
+
+```env
+LIBRARY_ROOTS=/media/Movies:/media/Raw
+```
+
+You can omit the target dir if you only ever write sidecar `.srt` files (those
+land next to the symlink, inside `Movies`) and never embed into symlinked
+videos.
 
 For translation, add your DeepSeek key:
 
@@ -104,11 +130,12 @@ The API is available at `http://localhost:8000`. Interactive API docs are at
 All settings are read from the `.env` file (or environment variables). The
 defaults in `.env.example` are safe for a first run.
 
+The host mount is configured directly in `docker-compose.yml` (see step 1
+above), not via an env var. Everything else lives in `.env`:
+
 | Variable | Default | Description |
 |---|---|---|
-| `LIBRARY_HOST_PATH` | `/your/media/path` | Host path mounted as `/library` inside the container |
-| `RAW_HOST_PATH` | `/your/media/raw/path` | Host path for symlink targets, mounted read-write |
-| `LIBRARY_ROOTS` | `/library` | Colon-separated paths **inside the container** to scan |
+| `LIBRARY_ROOTS` | `/library` | Colon-separated paths **inside the container** to scan. Also acts as the write/embed allow-list — include a symlink-target dir here to embed into symlinked videos. |
 | `DATA_DIR` | `/data` | Where the DB, trash, and Whisper cache are stored |
 | `DATABASE_URL` | `sqlite:////data/subs.db` | SQLite database path |
 | `WHISPER_MODEL` | `small` | `tiny` / `base` / `small` / `medium` |
@@ -121,11 +148,11 @@ defaults in `.env.example` are safe for a first run.
 ### Multiple library roots
 
 To scan more than one top-level folder, set `LIBRARY_ROOTS` to a
-colon-separated list of **container-side** paths and add the corresponding host
-mounts in `docker-compose.yml`:
+colon-separated list of **container-side** paths, and make sure each is covered
+by a mount in `docker-compose.yml`:
 
 ```env
-LIBRARY_ROOTS=/library/movies:/library/series
+LIBRARY_ROOTS=/media/Movies:/media/Series
 ```
 
 ---

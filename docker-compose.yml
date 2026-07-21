@@ -18,10 +18,10 @@ services:
     volumes:
       - ./api:/app
       - ./data:/data
-      # Library mount — adjust to your host. Read-write so we can write subs.
-      - ${LIBRARY_HOST_PATH:-/your/media/path}:/library
-      # Symlink targets must be reachable inside the container.
-      - ${RAW_HOST_PATH:-/your/media/raw/path}:/raw
+      # Mounted at the identical host path so absolute symlinks in the library
+      # (Movies -> /jefflix/Raw/...) resolve inside the container. Read-write
+      # so we can write subs and embed into the raw videos.
+      - /jefflix:/jefflix
     depends_on:
       - redis
     ports:
@@ -40,8 +40,7 @@ services:
     volumes:
       - ./api:/app
       - ./data:/data
-      - ${LIBRARY_HOST_PATH:-/your/media/path}:/library
-      - ${RAW_HOST_PATH:-/your/media/raw/path}:/raw
+      - /jefflix:/jefflix
     depends_on:
       - redis
     command: arq app.workers.queue.WorkerSettings
