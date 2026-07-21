@@ -101,6 +101,8 @@ class MovieSummary(BaseModel):
     embedded_sub_count: int
     embedded_sub_languages: list[str]
     has_subs: bool
+    video_formats: list[str]
+    subtitle_formats: list[str]
 
     model_config = {"from_attributes": True}
 

@@ -65,6 +65,8 @@ export interface MovieSummary {
   embedded_sub_count: number;
   embedded_sub_languages: string[];
   has_subs: boolean;
+  video_formats: string[];
+  subtitle_formats: string[];
 }
 
 export interface MovieDetail {
