@@ -58,6 +58,24 @@ def test_ensure_within_rejects_symlink_pointing_outside(
         ensure_within(link)
 
 
+def test_ensure_within_accepts_safe_fs_root_not_in_library_roots(
+    tmp_data: Path, tmp_path: Path, monkeypatch
+):
+    """SAFE_FS_ROOTS extends the write allowlist without being a scan target."""
+    extra = tmp_path / "raw"
+    extra.mkdir()
+    p = extra / "video.mkv.tmp"
+    p.write_text("x")
+
+    import app.core.config as config_mod
+
+    monkeypatch.setenv("SAFE_FS_ROOTS", str(extra))
+    config_mod.settings = config_mod.Settings()
+
+    ensure_within(p)  # allowed via SAFE_FS_ROOTS
+    assert str(extra) not in config_mod.settings.library_root_paths
+
+
 def test_is_video_extensions():
     assert is_video("/x/foo.mkv")
     assert is_video("/x/foo.MP4")

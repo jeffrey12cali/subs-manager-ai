@@ -6,6 +6,9 @@ class Settings(BaseSettings):
 
     # Library
     library_roots: str = "/library"
+    # Extra paths the safe-fs write gate should allow (e.g. symlink targets
+    # outside the scanned library) without being scanned themselves.
+    safe_fs_roots: str = ""
 
     # API
     api_host: str = "0.0.0.0"
@@ -32,6 +35,10 @@ class Settings(BaseSettings):
     @property
     def library_root_paths(self) -> list[str]:
         return [p for p in self.library_roots.split(":") if p]
+
+    @property
+    def safe_fs_root_paths(self) -> list[str]:
+        return [p for p in self.safe_fs_roots.split(":") if p]
 
 
 settings = Settings()
