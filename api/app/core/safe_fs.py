@@ -59,6 +59,7 @@ def _settings():
 def _allowed_roots() -> list[Path]:
     s = _settings()
     roots = [Path(p).resolve() for p in s.library_root_paths]
+    roots += [Path(p).resolve() for p in s.safe_fs_root_paths]
     roots.append(Path(s.data_dir).resolve())
     return roots
 
