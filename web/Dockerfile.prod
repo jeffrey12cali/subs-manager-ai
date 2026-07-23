@@ -1,0 +1,18 @@
+# Production image for the web frontend: build the static SPA, serve it with
+# nginx and reverse-proxy /api to the backend. The dev image (web/Dockerfile)
+# is left as-is for docker-compose.
+FROM node:20-alpine AS build
+WORKDIR /app
+COPY package.json package-lock.json* ./
+RUN npm install
+COPY . .
+RUN npm run build
+
+FROM nginx:1.27-alpine
+# Backend the /api requests are proxied to. Override at runtime.
+ENV API_UPSTREAM=http://api:8000
+# Only substitute API_UPSTREAM so nginx runtime vars ($host, $uri, ...) survive.
+ENV NGINX_ENVSUBST_FILTER=API_UPSTREAM
+COPY nginx.conf.template /etc/nginx/templates/default.conf.template
+COPY --from=build /app/dist /usr/share/nginx/html
+EXPOSE 80
