@@ -1,0 +1,63 @@
+# Production compose: runs the images published to Docker Hub by CI instead of
+# building from source. No source bind mounts and no dev commands — the code is
+# baked into the images. Only data/library volumes are mounted.
+#
+#   docker compose -f docker-compose.prod.yml pull
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# Pin ":latest" to ":sha-<commit>" for reproducible / rollback-able deploys.
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - ./data/redis:/data
+    command: ["redis-server", "--appendonly", "yes"]
+
+  api:
+    image: jeffrey12cali/subs-manager-api:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: sqlite:////data/subs.db
+      REDIS_URL: redis://redis:6379/0
+      DATA_DIR: /data
+    volumes:
+      - ./data:/data
+      # Mounted at the identical host path so absolute symlinks in the library
+      # (Movies -> /jefflix/Raw/...) resolve inside the container. Read-write
+      # so we can write subs and embed into the raw videos.
+      - /jefflix:/jefflix
+    depends_on:
+      - redis
+    ports:
+      - "8000:8000"
+    # No command: uses the image CMD (uvicorn, no --reload).
+
+  worker:
+    image: jeffrey12cali/subs-manager-api:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: sqlite:////data/subs.db
+      REDIS_URL: redis://redis:6379/0
+      DATA_DIR: /data
+    volumes:
+      - ./data:/data
+      - /jefflix:/jefflix
+    depends_on:
+      - redis
+    command: arq app.workers.queue.WorkerSettings
+
+  web:
+    image: jeffrey12cali/subs-manager-web:latest
+    restart: unless-stopped
+    environment:
+      # nginx reverse-proxies /api to this upstream at request time. The api
+      # service name resolves on the compose network.
+      API_UPSTREAM: http://api:8000
+    depends_on:
+      - api
+    ports:
+      # nginx serves the built SPA on port 80 (dev used Vite on 5173).
+      - "8080:80"
