@@ -125,6 +125,40 @@ The API is available at `http://localhost:8000`. Interactive API docs are at
 
 ---
 
+## Two compose files: development vs. production
+
+There are two compose files, sharing the same `.env` and the same library mount
+setup (step 1 above):
+
+| | `docker-compose.yml` | `docker-compose.prod.yml` |
+|---|---|---|
+| Purpose | Local development | Deploy prebuilt images |
+| Images | **Built from source** (`build:`) | **Pulled from Docker Hub** (`jeffrey12cali/subs-manager-{api,web}`) |
+| Source code | Bind-mounted (`./api`, `./web`) for **hot reload** | Baked into the image — no source mounts |
+| Backend | `uvicorn --reload` | `uvicorn` (production) |
+| Frontend | Vite dev server on `5173` | Compiled SPA served by **nginx on `8080`** |
+| Web UI | `http://localhost:5173` | `http://localhost:8080` |
+
+The `api` and `web` images are published to Docker Hub automatically by the
+GitHub Actions workflow (`.github/workflows/docker-publish.yml`) on every push
+to `main`, tagged `latest` and `sha-<commit>`.
+
+**Use the dev file** (`docker compose up -d --build`) while working on the code —
+edits reload live. **Use the prod file** to run the app from published images
+without a local build:
+
+```bash
+docker compose -f docker-compose.prod.yml pull   # fetch latest images
+docker compose -f docker-compose.prod.yml up -d
+# first run / after schema changes:
+docker compose -f docker-compose.prod.yml exec api uv run alembic upgrade head
+```
+
+Then open `http://localhost:8080`. Pin `:latest` to `:sha-<commit>` in
+`docker-compose.prod.yml` for reproducible, rollback-able deploys.
+
+---
+
 ## Configuration reference
 
 All settings are read from the `.env` file (or environment variables). The
