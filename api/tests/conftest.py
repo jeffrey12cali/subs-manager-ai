@@ -27,11 +27,15 @@ def tmp_data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     library.mkdir()
     monkeypatch.setenv("DATA_DIR", str(data))
     monkeypatch.setenv("LIBRARY_ROOTS", str(library))
+    monkeypatch.setenv("LIBRARIES", "")
+    monkeypatch.setenv("SAFE_FS_ROOTS", "")
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{data / 'test.db'}")
-    # Force config reload by clearing any cached singletons.
+    # Update the shared settings object in place so modules that imported
+    # `settings` at import time also see the test values.
     import app.core.config as config_mod
 
-    config_mod.settings = config_mod.Settings()
+    fresh = config_mod.Settings()
+    config_mod.settings.__dict__.update(fresh.__dict__)
     return tmp_path
 
 

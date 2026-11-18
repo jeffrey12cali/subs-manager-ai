@@ -243,3 +243,70 @@ def test_subtitle_formats_combine_external_and_normalized_embedded(client, sessi
 
     listed = client.get("/movies/").json()
     assert listed[0]["subtitle_formats"] == ["ass", "srt"]
+
+
+def test_list_filters_by_configured_library(
+    client, session, library_root, monkeypatch
+):
+    import app.core.config as config_mod
+
+    monkeypatch.setattr(
+        config_mod.settings, "libraries", "Movies|movies|" + str(library_root)
+    )
+    folder = library_root / "A (2024)"
+    folder.mkdir()
+    session.add(
+        Movie(
+            folder_path=str(folder),
+            title="A",
+            year=2024,
+            library_id="movies",
+        )
+    )
+    session.add(
+        Movie(
+            folder_path="/elsewhere/B (2024)",
+            title="B",
+            year=2024,
+        )
+    )
+    session.commit()
+
+    body = client.get("/movies/?library=movies").json()
+    assert [movie["title"] for movie in body] == ["A"]
+    assert body[0]["library_id"] == "movies"
+
+
+def test_list_rejects_unknown_or_wrong_library(client, monkeypatch):
+    import app.core.config as config_mod
+
+    monkeypatch.setattr(
+        config_mod.settings, "libraries", "Series|series|/media/Series"
+    )
+    assert client.get("/movies/?library=missing").status_code == 404
+    assert client.get("/movies/?library=series").status_code == 422
+
+
+def test_list_excludes_episodes(client, session):
+    from app.models import MediaKind
+
+    session.add(
+        Movie(
+            folder_path="/library/Movie (2024)",
+            title="Movie",
+            year=2024,
+        )
+    )
+    session.add(
+        Movie(
+            folder_path="/library/Show (2024)#S01E01",
+            title="Show",
+            year=2024,
+            kind=MediaKind.episode,
+            episode_label="S01E01",
+        )
+    )
+    session.commit()
+
+    body = client.get("/movies/").json()
+    assert [movie["title"] for movie in body] == ["Movie"]

@@ -65,7 +65,7 @@ def test_scan_enqueues_run_scan_and_stays_queued(client, fake_arq, library_root:
 
     job_name, args = fake_arq[0]
     assert job_name == "run_scan"
-    assert args == (job_ids[0], str(library_root))
+    assert args == (job_ids[0], str(library_root), "movies", "library")
     assert ("aclose", ()) in fake_arq
 
     job = client.get(f"/jobs/{job_ids[0]}").json()
@@ -162,3 +162,25 @@ def test_translate_embedded_enqueues_run_translate_embedded(
     job = r.json()
     assert job["status"] == "queued"
     assert ("run_translate_embedded", (job["id"],)) in fake_arq
+
+
+def test_scan_enqueues_series_kind_and_library_id(
+    client, fake_arq, library_root: Path, monkeypatch
+):
+    import app.core.config as config_mod
+
+    series_root = library_root.parent / "series"
+    series_root.mkdir()
+    monkeypatch.setattr(
+        config_mod.settings,
+        "libraries",
+        f"Series|series|{series_root}",
+    )
+
+    r = client.post("/library/scan?library=series")
+    assert r.status_code == 200
+    job_id = r.json()["job_ids"][0]
+
+    job_name, args = fake_arq[0]
+    assert job_name == "run_scan"
+    assert args == (job_id, str(series_root), "series", "series")

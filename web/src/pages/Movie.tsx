@@ -328,16 +328,36 @@ export default function Movie() {
   });
 
   if (isLoading) return <div className="p-6 text-neutral-400">Loading…</div>;
-  if (error || !movie) return <div className="p-6 text-red-400">Movie not found.</div>;
+  if (error || !movie) return <div className="p-6 text-red-400">Media item not found.</div>;
+
+  const isEpisode = movie.kind === "episode";
+  const backTo = isEpisode && movie.series_id ? `/series/${movie.series_id}` : "/";
 
   return (
     <div className="p-6 space-y-6 max-w-4xl">
-      <Link to="/" className="text-sm text-neutral-500 hover:text-neutral-300">← Library</Link>
+      <Link to={backTo} className="text-sm text-neutral-500 hover:text-neutral-300">
+        ← {isEpisode ? "Series" : "Library"}
+      </Link>
 
       <div>
-        <h1 className="text-2xl font-bold">{movie.title}</h1>
-        {movie.year && <p className="text-neutral-500">{movie.year}</p>}
-        <p className="mt-1 font-mono text-xs text-neutral-700 break-all">{movie.folder_path}</p>
+        <h1 className="text-2xl font-bold">
+          {isEpisode ? movie.series_title ?? movie.title : movie.title}
+        </h1>
+        {isEpisode ? (
+          <p className="text-neutral-500">
+            {movie.episode_label ?? "Episode"}
+            {movie.season_number !== null && movie.episode_number !== null
+              ? ` · Season ${movie.season_number}, Episode ${movie.episode_number}`
+              : ""}
+          </p>
+        ) : (
+          movie.year && <p className="text-neutral-500">{movie.year}</p>
+        )}
+        {!isEpisode && (
+          <p className="mt-1 font-mono text-xs text-neutral-700 break-all">
+            {movie.folder_path}
+          </p>
+        )}
       </div>
 
       {/* Video files */}

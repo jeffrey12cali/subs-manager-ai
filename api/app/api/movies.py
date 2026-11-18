@@ -3,8 +3,10 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select
 
+from app.api._summaries import summarize_items
+from app.api.libraries import path_in_library, resolve_library
 from app.core.db import get_session
-from app.models import EmbeddedSubtitle, ExternalSubtitle, Movie, VideoFile
+from app.models import EmbeddedSubtitle, ExternalSubtitle, MediaKind, Movie, Series, VideoFile
 from app.schemas import (
     EmbeddedSubRead,
     ExternalSubRead,
@@ -15,68 +17,45 @@ from app.schemas import (
 
 router = APIRouter()
 
-# Normalize ffmpeg/mkvmerge embedded subtitle codec names to the same format
-# labels used for external subs (srt|ass|vtt|...).
-_EMBEDDED_CODEC_FORMAT = {
-    "subrip": "srt",
-    "srt": "srt",
-    "ass": "ass",
-    "ssa": "ass",
-    "webvtt": "vtt",
-    "vtt": "vtt",
-    "hdmv_pgs_subtitle": "pgs",
-    "pgs": "pgs",
-    "dvd_subtitle": "vobsub",
-    "vobsub": "vobsub",
-}
-
 
 @router.get("/", response_model=list[MovieSummary])
 def list_movies(
     missing_subs: bool = Query(False, description="Only movies with no subs"),
+    library: str | None = Query(None, description="Configured movies library ID"),
     session: Session = Depends(get_session),
 ):
-    movies = session.exec(select(Movie).order_by(Movie.title)).all()
+    selected = resolve_library(library, "movies") if library else None
+    movies = session.exec(
+        select(Movie).where(Movie.kind == MediaKind.movie).order_by(Movie.title)
+    ).all()
+    if selected is not None:
+        movies = [
+            movie
+            for movie in movies
+            if movie.library_id == selected.id
+            or (movie.library_id is None and path_in_library(selected, movie.folder_path))
+        ]
+
+    stats = summarize_items(session, movies)
     summaries: list[MovieSummary] = []
-    for m in movies:
-        vfiles = session.exec(select(VideoFile).where(VideoFile.movie_id == m.id)).all()
-        ext_subs = session.exec(
-            select(ExternalSubtitle).where(ExternalSubtitle.movie_id == m.id)
-        ).all()
-        all_emb = []
-        for vf in vfiles:
-            all_emb.extend(
-                session.exec(
-                    select(EmbeddedSubtitle).where(EmbeddedSubtitle.video_file_id == vf.id)
-                ).all()
-            )
-        emb_count = len(all_emb)
-        langs = sorted({s.language for s in ext_subs if s.language})
-        unknown_count = sum(1 for s in ext_subs if not s.language)
-        emb_langs = sorted({e.language for e in all_emb if e.language})
-        has_subs = bool(ext_subs) or emb_count > 0
-        if missing_subs and has_subs:
+    for movie in movies:
+        item_stats = stats.get(movie.id or -1, {})
+        if missing_subs and item_stats.get("has_subs"):
             continue
-        video_formats = sorted({vf.container for vf in vfiles if vf.container})
-        subtitle_formats = sorted(
-            {s.format for s in ext_subs if s.format}
-            | {_EMBEDDED_CODEC_FORMAT.get(e.codec.lower(), e.codec.lower()) for e in all_emb if e.codec}
+        summaries.append(
+            MovieSummary(
+                id=movie.id,
+                title=movie.title,
+                year=movie.year,
+                folder_path=movie.folder_path,
+                kind=movie.kind,
+                library_id=movie.library_id,
+                season_number=movie.season_number,
+                episode_number=movie.episode_number,
+                episode_label=movie.episode_label,
+                **item_stats,
+            )
         )
-        summaries.append(MovieSummary(
-            id=m.id,
-            title=m.title,
-            year=m.year,
-            folder_path=m.folder_path,
-            video_count=len(vfiles),
-            external_sub_count=len(ext_subs),
-            external_sub_languages=langs,
-            unknown_sub_count=unknown_count,
-            embedded_sub_count=emb_count,
-            embedded_sub_languages=emb_langs,
-            has_subs=has_subs,
-            video_formats=video_formats,
-            subtitle_formats=subtitle_formats,
-        ))
     return summaries
 
 
@@ -100,11 +79,23 @@ def get_movie(movie_id: int, session: Session = Depends(get_session)):
         select(ExternalSubtitle).where(ExternalSubtitle.movie_id == movie_id)
     ).all()
 
+    series_title = None
+    if movie.series_id is not None:
+        series = session.get(Series, movie.series_id)
+        series_title = series.title if series else None
+
     return MovieDetail(
         id=movie.id,
         folder_path=movie.folder_path,
         title=movie.title,
         year=movie.year,
+        kind=movie.kind,
+        library_id=movie.library_id,
+        series_id=movie.series_id,
+        series_title=series_title,
+        season_number=movie.season_number,
+        episode_number=movie.episode_number,
+        episode_label=movie.episode_label,
         scanned_at=movie.scanned_at,
         video_files=vfile_reads,
         external_subs=[ExternalSubRead.model_validate(s) for s in ext_subs],

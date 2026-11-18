@@ -11,7 +11,14 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, BeforeValidator
 
-from app.models import JobStatus, JobType, LanguageSource, SubSource
+from app.models import JobStatus, JobType, LanguageSource, MediaKind, SubSource
+
+
+class LibraryRead(BaseModel):
+    id: str
+    name: str
+    type: str
+    root: str
 
 
 def _ensure_utc(v: Any) -> Any:
@@ -82,6 +89,13 @@ class MovieDetail(BaseModel):
     folder_path: str
     title: str
     year: int | None = None
+    kind: MediaKind = MediaKind.movie
+    library_id: str | None = None
+    series_id: int | None = None
+    series_title: str | None = None
+    season_number: int | None = None
+    episode_number: int | None = None
+    episode_label: str | None = None
     scanned_at: AwareDatetime | None = None
     video_files: list[VideoFileRead] = []
     external_subs: list[ExternalSubRead] = []
@@ -94,6 +108,11 @@ class MovieSummary(BaseModel):
     title: str
     year: int | None
     folder_path: str
+    kind: MediaKind = MediaKind.movie
+    library_id: str | None = None
+    season_number: int | None = None
+    episode_number: int | None = None
+    episode_label: str | None = None
     video_count: int
     external_sub_count: int
     external_sub_languages: list[str]
@@ -105,6 +124,55 @@ class MovieSummary(BaseModel):
     subtitle_formats: list[str]
 
     model_config = {"from_attributes": True}
+
+
+class EpisodeSummary(BaseModel):
+    id: int
+    title: str
+    episode_label: str | None = None
+    season_number: int | None = None
+    episode_number: int | None = None
+    video_count: int
+    external_sub_count: int
+    external_sub_languages: list[str]
+    unknown_sub_count: int
+    embedded_sub_count: int
+    embedded_sub_languages: list[str]
+    has_subs: bool
+    video_formats: list[str]
+    subtitle_formats: list[str]
+
+
+class SeasonGroup(BaseModel):
+    season_number: int | None = None
+    episodes: list[EpisodeSummary] = []
+
+
+class SeriesSummary(BaseModel):
+    id: int
+    library_id: str
+    title: str
+    year: int | None = None
+    folder_path: str
+    episode_count: int
+    video_count: int
+    external_sub_count: int
+    external_sub_languages: list[str]
+    unknown_sub_count: int
+    embedded_sub_count: int
+    embedded_sub_languages: list[str]
+    has_subs: bool
+
+
+class SeriesDetail(BaseModel):
+    id: int
+    library_id: str
+    title: str
+    year: int | None = None
+    folder_path: str
+    scanned_at: AwareDatetime | None = None
+    season_groups: list[SeasonGroup] = []
+    other_videos: list[EpisodeSummary] = []
 
 
 class JobRead(BaseModel):

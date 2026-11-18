@@ -28,7 +28,7 @@ from app.models import (
     Movie,
     SubSource,
 )
-from app.scanner.naming import canonical_sub_path
+from app.scanner.naming import canonical_sub_path_for_item
 
 log = logging.getLogger(__name__)
 
@@ -241,10 +241,8 @@ def do_translate(
         srt_content = "\n".join(str(item) for item in srt_subs)
 
         out_path = Path(
-            canonical_sub_path(
-                movie.folder_path,
-                movie.title,
-                movie.year,
+            canonical_sub_path_for_item(
+                movie,
                 target_lang,
                 forced=sub.forced,
                 sdh=sub.sdh,

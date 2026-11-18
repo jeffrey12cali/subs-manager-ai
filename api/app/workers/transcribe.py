@@ -26,7 +26,7 @@ from app.models import (
     SubSource,
     VideoFile,
 )
-from app.scanner.naming import canonical_sub_path
+from app.scanner.naming import canonical_sub_path_for_item
 
 log = logging.getLogger(__name__)
 
@@ -138,10 +138,8 @@ def do_transcribe(
         srt_text = segments_to_srt(collected)
 
         out_path = Path(
-            canonical_sub_path(
-                movie.folder_path,
-                movie.title,
-                movie.year,
+            canonical_sub_path_for_item(
+                movie,
                 lang,
                 forced=False,
                 sdh=False,

@@ -5,6 +5,11 @@ from sqlalchemy import JSON, Column
 from sqlmodel import Field, Relationship, SQLModel
 
 
+class MediaKind(StrEnum):
+    movie = "movie"
+    episode = "episode"
+
+
 class SubSource(StrEnum):
     manual = "manual"
     whisper = "whisper"
@@ -46,13 +51,33 @@ class LibraryRoot(SQLModel, table=True):
     enabled: bool = True
 
 
-class Movie(SQLModel, table=True):
+class Series(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
+    library_id: str = Field(index=True)
     folder_path: str = Field(index=True, unique=True)
     title: str
     year: int | None = None
     scanned_at: datetime | None = None
 
+    episodes: list["Movie"] = Relationship(back_populates="series")
+
+
+class Movie(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    folder_path: str = Field(index=True, unique=True)
+    title: str
+    year: int | None = None
+    kind: MediaKind = Field(default=MediaKind.movie, index=True)
+    library_id: str | None = Field(default=None, index=True)
+    series_id: int | None = Field(default=None, foreign_key="series.id", index=True)
+    season_number: int | None = None
+    episode_number: int | None = None
+    episode_label: str | None = None
+    subtitle_dir: str | None = None
+    subtitle_stem: str | None = None
+    scanned_at: datetime | None = None
+
+    series: Series | None = Relationship(back_populates="episodes")
     video_files: list["VideoFile"] = Relationship(back_populates="movie")
     external_subs: list["ExternalSubtitle"] = Relationship(back_populates="movie")
 

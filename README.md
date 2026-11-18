@@ -9,9 +9,13 @@ DeepSeek.
 
 ## Features
 
-- **Library scan** — walks Jellyfin-style `Title (Year)/` folders, parses
-  sidecar subtitle filenames (30+ naming patterns), probes MKV embedded tracks
-  via ffprobe.
+- **Named libraries** — define movie and series libraries in `.env`; switch
+  between them in the UI.
+- **Library scan** — walks Jellyfin-style `Title (Year)/` movie folders and
+  series folders, parses sidecar subtitle filenames (30+ naming patterns),
+  probes MKV embedded tracks via ffprobe.
+- **Series browsing** — a series page lists seasons and episodes. Clicking an
+  episode opens the same detail view and subtitle actions as a movie.
 - **Upload & manage** — upload SRT/ASS/VTT files, set language/flags, rename
   to Jellyfin convention, delete (moves to trash, never permanent).
 - **MKV extract** — pull an embedded subtitle track out as a sidecar `.srt`.
@@ -71,19 +75,27 @@ often point at **absolute** targets (e.g. `Movies/Film.mkv ->
 /media/Raw/Film/...`). They only resolve inside the container if that exact
 path exists there, so mount at `/media:/media`, not `/media:/library`.
 
-**2. Point the scanner at the folders to scan** — set `LIBRARY_ROOTS` in
-`.env` to the **container-side** paths (colon-separated):
+**2. Point the scanner at the folders to scan** — set `LIBRARIES` in `.env`.
+Each entry is `Name|type|container-path`, separated by `;`. Type is `movies`
+or `series`:
 
 ```env
-LIBRARY_ROOTS=/media/Movies
+LIBRARIES=Movies|movies|/media/Movies;Series|series|/media/Series
 ```
 
-If your library uses symlinks with absolute targets, **also include the
-target directory** — the app's safe-fs gate only permits writes/embeds into
-declared roots, and embedding a track rewrites the real (target) file:
+The legacy movie-only form still works when `LIBRARIES` is empty:
 
 ```env
 LIBRARY_ROOTS=/media/Movies:/media/Raw
+```
+
+If your library uses symlinks with absolute targets, **also include the
+target directory** in `SAFE_FS_ROOTS` — the app's safe-fs gate only permits
+writes/embeds into declared roots, and embedding a track rewrites the real
+(target) file:
+
+```env
+SAFE_FS_ROOTS=/media/Raw
 ```
 
 You can omit the target dir if you only ever write sidecar `.srt` files (those
@@ -105,14 +117,14 @@ docker compose up -d --build
 This starts four services: `redis`, `api` (FastAPI), `worker` (ARQ), `web`
 (Vite dev server).
 
-### 3. Run the database migration
+### 3. Database migration
 
-```bash
-make migrate
-```
+The container entrypoint runs `alembic upgrade head` before the API and worker
+start. You do not need to run a migration command on TrueNAS Scale or with
+Docker Compose. A file lock in `DATA_DIR` makes the API and worker take turns.
 
-Only needed on first run, or after pulling new commits that include schema
-changes.
+For a manual rerun, use `make migrate`. Set `RUN_MIGRATIONS=0` only when an
+external process owns the schema.
 
 ### 4. Open the UI
 
@@ -150,8 +162,6 @@ without a local build:
 ```bash
 docker compose -f docker-compose.prod.yml pull   # fetch latest images
 docker compose -f docker-compose.prod.yml up -d
-# first run / after schema changes:
-docker compose -f docker-compose.prod.yml exec api uv run alembic upgrade head
 ```
 
 Then open `http://localhost:8080`. Pin `:latest` to `:sha-<commit>` in
@@ -169,7 +179,10 @@ above), not via an env var. Everything else lives in `.env`:
 
 | Variable | Default | Description |
 |---|---|---|
-| `LIBRARY_ROOTS` | `/library` | Colon-separated paths **inside the container** to scan. Also acts as the write/embed allow-list — include a symlink-target dir here to embed into symlinked videos. |
+| `LIBRARIES` | *(empty)* | Named libraries: `Name|type|container-path` entries separated by `;`. Type is `movies` or `series`. Preferred over `LIBRARY_ROOTS`. |
+| `LIBRARY_ROOTS` | `/library` | Legacy movie-only roots, colon-separated **inside the container**. Used only when `LIBRARIES` is empty. |
+| `SAFE_FS_ROOTS` | *(empty)* | Extra colon-separated paths that the write/embed gate allows, such as symlink targets. |
+| `RUN_MIGRATIONS` | `1` | Container entrypoint applies Alembic migrations before API/worker start. Set `0` only when an external process owns the schema. |
 | `DATA_DIR` | `/data` | Where the DB, trash, and Whisper cache are stored |
 | `DATABASE_URL` | `sqlite:////data/subs.db` | SQLite database path |
 | `WHISPER_MODEL` | `small` | `tiny` / `base` / `small` / `medium` |
@@ -179,21 +192,23 @@ above), not via an env var. Everything else lives in `.env`:
 | `OPENAI_BASE_URL` | `https://api.deepseek.com/v1` | Any OpenAI-compatible endpoint |
 | `TRANSLATE_MODEL` | `deepseek-chat` | Model passed to the translation API |
 
-### Multiple library roots
+### Multiple libraries
 
-To scan more than one top-level folder, set `LIBRARY_ROOTS` to a
-colon-separated list of **container-side** paths, and make sure each is covered
-by a mount in `docker-compose.yml`:
+To scan more than one top-level folder, define each one in `LIBRARIES` and
+make sure each root is covered by a mount in `docker-compose.yml`:
 
 ```env
-LIBRARY_ROOTS=/media/Movies:/media/Series
+LIBRARIES=Movies|movies|/media/Movies;Series|series|/media/Series;TV Shows|series|/media/TV Shows
 ```
+
+The Library page has a selector for these libraries. "Scan now" scans the
+selected library; "Scan all" scans every configured library.
 
 ---
 
 ## Library folder structure
 
-The scanner expects one folder per title:
+A movie library expects one folder per title:
 
 ```
 Movies/
@@ -207,9 +222,29 @@ Movies/
       Taxi Driver (1976).es.srt
 ```
 
-Folder names must match `Title (Year)` — the year in parentheses is used for
-canonical subtitle naming. Sub-folders up to two levels deep are scanned for
-subtitle files.
+Movie folder names must match `Title (Year)` — the year in parentheses is used
+for canonical subtitle naming. Sub-folders up to two levels deep are scanned
+for subtitle files.
+
+A series library expects one folder per series, with optional season folders:
+
+```
+Series/
+  Pluribus (2025)/
+    Season 01/
+      Pluribus S01E01.mkv
+      Pluribus S01E01.en.srt
+      Pluribus S01E02.mkv
+  The Looney Tunes/
+    LT_01.mp4
+    LT_02.mp4
+```
+
+The scanner recognizes `S01E02`, `1x15`, `E04`, and bare numbers such as
+`015.mp4` or `LT_15.mp4`. A season number comes from the nearest
+`Season 01`, `Temporada 1`, `S01`, or `T01` folder when the filename has no
+season. Videos with no reliable episode marker stay visible under
+`Other videos` on the series page.
 
 ---
 
@@ -274,7 +309,7 @@ make test-local
 
 ## Testing
 
-The API test suite (`api/tests/`) has 311 tests covering the scanner, probe
+The API test suite (`api/tests/`) has 389 tests covering the scanner, probe
 mapping, naming/canonical paths, safe-fs primitives, job workers (extract,
 embed, transcribe, translate), and every API router — including the ARQ
 async-enqueue path (mocked `arq.create_pool`) and an end-to-end
@@ -291,7 +326,7 @@ Coverage is reported (not gated) via `pytest-cov`:
 cd api && uv run pytest --cov=app --cov-report=term-missing
 ```
 
-Current overall coverage: **91%**.
+Current overall coverage: **92%**.
 
 ---
 
@@ -300,15 +335,15 @@ Current overall coverage: **91%**.
 ```
 api/
   app/
-    api/          FastAPI routers (movies, subs, video_files, jobs, library, settings)
+    api/          FastAPI routers (libraries, series, movies, subs, video_files, jobs, library, settings)
     core/         Config, DB engine, safe_fs primitives, policy
     models.py     SQLModel table classes
     schemas.py    Pydantic read-models for API responses
-    scanner/      Walker, ffprobe wrapper, sub name parser, canonical naming
+    scanner/      Walkers, episode parser, ffprobe wrapper, sub name parser, naming
     workers/      ARQ tasks: scan, extract, embed, transcribe, translate
 web/
   src/
-    pages/        Library, Movie, Jobs
+    pages/        Library, Series, Movie, Jobs
     components/   LangBadge, UploadModal, EditSubModal
     api/          Typed API client (client.ts)
 data/             SQLite DB, trash/, redis/ (created at runtime, gitignored)

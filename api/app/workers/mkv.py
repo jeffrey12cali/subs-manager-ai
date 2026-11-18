@@ -29,7 +29,7 @@ from app.models import (
     SubSource,
     VideoFile,
 )
-from app.scanner.naming import canonical_sub_path
+from app.scanner.naming import canonical_sub_path_for_item
 
 log = logging.getLogger(__name__)
 
@@ -128,10 +128,8 @@ def do_extract(job_id: int, *, session: Session, runner=None) -> dict:
         ext = _CODEC_TO_EXT.get(embedded.codec, "srt")
         lang = embedded.language or "und"
         out_path = Path(
-            canonical_sub_path(
-                movie.folder_path,
-                movie.title,
-                movie.year,
+            canonical_sub_path_for_item(
+                movie,
                 lang,
                 forced=embedded.forced,
                 sdh=False,
