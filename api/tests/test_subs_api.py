@@ -525,3 +525,29 @@ def test_rename_os_rename_failure_propagates_without_partial_state(
     session.refresh(sub)
     assert sub.path == str(src)
     assert src.exists()
+
+
+def test_upload_to_episode_uses_episode_stem(client, session, library_root: Path):
+    from app.models import MediaKind
+
+    season = library_root / "Show (2024)" / "Season 01"
+    season.mkdir(parents=True)
+    movie = Movie(
+        folder_path=f"{library_root / 'Show (2024)'}#Season 01S01E02",
+        title="Show",
+        year=2024,
+        kind=MediaKind.episode,
+        episode_label="S01E02",
+        subtitle_dir=str(season),
+        subtitle_stem="Show S01E02",
+    )
+    session.add(movie)
+    session.commit()
+    session.refresh(movie)
+
+    r = _upload(client, movie.id, VALID_SRT, language="en")
+    assert r.status_code == 200
+    target = season / "Show S01E02.en.srt"
+    assert target.exists()
+    assert r.json()["filename"] == target.name
+    assert not (library_root / "Show (2024)" / "Show (2024).en.srt").exists()

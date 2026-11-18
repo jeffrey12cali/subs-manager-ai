@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import health, jobs, library, movies, subs, video_files
+from app.api import health, jobs, libraries, library, movies, series, subs, video_files
 from app.api import settings as settings_api
 from app.core.db import init_db
 
@@ -24,8 +24,10 @@ app.add_middleware(
 )
 
 app.include_router(health.router)
+app.include_router(libraries.router, prefix="/libraries", tags=["libraries"])
 app.include_router(library.router, prefix="/library", tags=["library"])
 app.include_router(movies.router, prefix="/movies", tags=["movies"])
+app.include_router(series.router, prefix="/series", tags=["series"])
 # /movies/{id}/subs/upload lives in subs router (needs movie_id in path)
 app.include_router(subs.router, tags=["subs"])
 app.include_router(video_files.router, tags=["video-files"])

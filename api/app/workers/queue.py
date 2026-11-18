@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from arq.connections import RedisSettings
 from sqlmodel import Session
 
-from app.core.config import settings
+from app.core import config
 from app.core.db import engine
 from app.models import Job, JobStatus
 from app.scanner.scanner import scan_library
@@ -24,7 +24,13 @@ async def ping(ctx: dict) -> str:  # noqa: ARG001
     return "pong"
 
 
-async def run_scan(ctx: dict, job_id: int, root: str) -> dict:
+async def run_scan(
+    ctx: dict,
+    job_id: int,
+    root: str,
+    kind: str = "movies",
+    library_id: str | None = None,
+) -> dict:
     """ARQ task: run scanner for one library root, updating Job progress."""
     with Session(engine) as session:
         job = session.get(Job, job_id)
@@ -33,7 +39,7 @@ async def run_scan(ctx: dict, job_id: int, root: str) -> dict:
             return {}
 
         job.status = JobStatus.running
-        job.started_at = datetime.now(timezone.utc)
+        job.started_at = datetime.now(UTC)
         session.add(job)
         session.commit()
 
@@ -48,17 +54,26 @@ async def run_scan(ctx: dict, job_id: int, root: str) -> dict:
                     inner.commit()
 
         try:
-            stats = scan_library(Path(root), session, progress=_progress)
+            stats = scan_library(
+                Path(root),
+                session,
+                progress=_progress,
+                kind=kind,
+                library_id=library_id,
+            )
             with Session(engine) as fin:
                 j = fin.get(Job, job_id)
                 if j:
                     j.status = JobStatus.done
                     j.progress = 100
-                    j.finished_at = datetime.now(timezone.utc)
+                    j.finished_at = datetime.now(UTC)
                     j.log += (
                         f"Done: {stats['movies']} movies, "
+                        f"{stats['series']} series, "
+                        f"{stats['episodes']} episodes, "
                         f"{stats['videos']} videos, "
                         f"{stats['subs']} subs, "
+                        f"{stats['unmatched_subs']} unmatched subs, "
                         f"{stats['probe_errors']} probe errors\n"
                     )
                     fin.add(j)
@@ -71,7 +86,7 @@ async def run_scan(ctx: dict, job_id: int, root: str) -> dict:
                 if j:
                     j.status = JobStatus.failed
                     j.error = str(exc)
-                    j.finished_at = datetime.now(timezone.utc)
+                    j.finished_at = datetime.now(UTC)
                     err.add(j)
                     err.commit()
             raise
@@ -86,11 +101,19 @@ async def shutdown(ctx: dict) -> None:  # noqa: ARG001
 
 
 def _redis_settings() -> RedisSettings:
-    return RedisSettings.from_dsn(settings.redis_url)
+    return RedisSettings.from_dsn(config.settings.redis_url)
 
 
 class WorkerSettings:
-    functions = [ping, run_scan, run_extract, run_embed, run_transcribe, run_translate, run_translate_embedded]
+    functions = [
+        ping,
+        run_scan,
+        run_extract,
+        run_embed,
+        run_transcribe,
+        run_translate,
+        run_translate_embedded,
+    ]
     redis_settings = _redis_settings()
     on_startup = startup
     on_shutdown = shutdown

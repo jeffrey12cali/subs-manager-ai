@@ -9,7 +9,9 @@ from app.models import (
     EmbeddedSubtitle,
     ExternalSubtitle,
     LanguageSource,
+    MediaKind,
     Movie,
+    Series,
     SubSource,
     VideoFile,
 )
@@ -351,3 +353,154 @@ def test_stats_returned(session, library_root: Path, make_movie_folder):
     assert stats["videos"] == 1
     assert stats["subs"] == 2
     assert stats["probe_errors"] == 0
+
+
+# ---------- series scan ----------
+
+
+def _scan_series(session, root: Path):
+    return scan_library(
+        root,
+        session,
+        probe_runner=_probe_noop,
+        kind="series",
+        library_id="series",
+    )
+
+
+def _episodes(session):
+    return session.exec(
+        select(Movie).where(Movie.kind == MediaKind.episode)
+    ).all()
+
+
+def test_scan_series_groups_episodes(session, library_root: Path):
+    season = library_root / "Pluribus (2025)" / "Season 01"
+    season.mkdir(parents=True)
+    (season / "Pluribus S01E02.mkv").write_bytes(b"x")
+    (season / "Pluribus S01E01.mkv").write_bytes(b"x")
+
+    stats = _scan_series(session, library_root)
+    assert stats["series"] == 1
+    assert stats["episodes"] == 2
+    assert stats["videos"] == 2
+
+    series = session.exec(select(Series)).first()
+    assert series.title == "Pluribus"
+    episodes = sorted(_episodes(session), key=lambda m: m.episode_number)
+    assert [e.episode_label for e in episodes] == ["S01E01", "S01E02"]
+    assert all(e.series_id == series.id for e in episodes)
+    assert all(e.library_id == "series" for e in episodes)
+    assert episodes[0].subtitle_dir == str(season)
+    assert episodes[0].subtitle_stem == "Pluribus S01E01"
+
+
+def test_scan_series_groups_variants(session, library_root: Path):
+    season = library_root / "Doraemon (1979)" / "Season 1"
+    season.mkdir(parents=True)
+    (season / "Doraemon S01E0001.avi").write_bytes(b"x")
+    (season / "Doraemon S01E0001 - LAT.avi").write_bytes(b"x")
+    (season / "Doraemon S01E0002.avi").write_bytes(b"x")
+
+    _scan_series(session, library_root)
+    episodes = _episodes(session)
+    assert len(episodes) == 2
+    first = next(e for e in episodes if e.episode_number == 1)
+    videos = session.exec(
+        select(VideoFile).where(VideoFile.movie_id == first.id)
+    ).all()
+    assert len(videos) == 2
+    assert {v.variant for v in videos} == {None, "LAT"}
+    assert first.subtitle_stem == "Doraemon S01E0001"
+
+
+def test_scan_series_yearless_numbered_videos(session, library_root: Path):
+    folder = library_root / "The Looney Tunes"
+    folder.mkdir()
+    (folder / "LT_15.mp4").write_bytes(b"x")
+    (folder / "LT_02.mp4").write_bytes(b"x")
+
+    stats = _scan_series(session, library_root)
+    assert stats["episodes"] == 2
+    episodes = _episodes(session)
+    assert {e.episode_label for e in episodes} == {"E02", "E15"}
+
+
+def test_scan_series_unnumbered_videos_are_items(session, library_root: Path):
+    folder = library_root / "The Looney Tunes"
+    folder.mkdir()
+    (folder / "Behind the scenes.mp4").write_bytes(b"x")
+    (folder / "Cast interview.mp4").write_bytes(b"x")
+
+    stats = _scan_series(session, library_root)
+    assert stats["episodes"] == 2
+    episodes = _episodes(session)
+    assert {e.episode_label for e in episodes} == {
+        "Behind the scenes",
+        "Cast interview",
+    }
+    assert all(e.episode_number is None for e in episodes)
+    assert len({e.folder_path for e in episodes}) == 2
+
+
+def test_scan_series_is_idempotent(session, library_root: Path):
+    season = library_root / "Pluribus (2025)" / "Season 01"
+    season.mkdir(parents=True)
+    (season / "Pluribus S01E01.mkv").write_bytes(b"x")
+
+    _scan_series(session, library_root)
+    _scan_series(session, library_root)
+
+    assert len(session.exec(select(Series)).all()) == 1
+    assert len(_episodes(session)) == 1
+    assert len(session.exec(select(VideoFile)).all()) == 1
+
+
+def test_scan_series_attaches_matching_subtitles(
+    session, library_root: Path
+):
+    season = library_root / "Pluribus (2025)" / "Season 01"
+    season.mkdir(parents=True)
+    (season / "Pluribus S01E01.mkv").write_bytes(b"x")
+    (season / "Pluribus S01E01.en.srt").write_bytes(b"x")
+    (season / "Pluribus S01E02.mkv").write_bytes(b"x")
+    (season / "Pluribus S01E02.es.srt").write_bytes(b"x")
+
+    stats = _scan_series(session, library_root)
+    assert stats["subs"] == 2
+    assert stats["unmatched_subs"] == 0
+
+    episodes = {e.episode_number: e for e in _episodes(session)}
+    subs = session.exec(select(ExternalSubtitle)).all()
+    by_lang = {(s.movie_id, s.language) for s in subs}
+    assert (episodes[1].id, "en") in by_lang
+    assert (episodes[2].id, "es") in by_lang
+
+
+def test_scan_series_leaves_ambiguous_subtitle_unassigned(
+    session, library_root: Path
+):
+    season = library_root / "Pluribus (2025)" / "Season 01"
+    (season / "subs").mkdir(parents=True)
+    (season / "Pluribus S01E01.mkv").write_bytes(b"x")
+    (season / "Pluribus S01E02.mkv").write_bytes(b"x")
+    (season / "subs" / "3_English.srt").write_bytes(b"x")
+
+    stats = _scan_series(session, library_root)
+    assert stats["subs"] == 0
+    assert stats["unmatched_subs"] == 1
+    assert session.exec(select(ExternalSubtitle)).all() == []
+
+
+def test_scan_series_single_episode_folder_attaches_generic_sub(
+    session, library_root: Path
+):
+    folder = library_root / "FLCL (2000)"
+    folder.mkdir()
+    (folder / "FLCL (2000) E01.mp4").write_bytes(b"x")
+    (folder / "subs").mkdir()
+    (folder / "subs" / "3_English.srt").write_bytes(b"x")
+
+    stats = _scan_series(session, library_root)
+    assert stats["subs"] == 1
+    assert stats["unmatched_subs"] == 0

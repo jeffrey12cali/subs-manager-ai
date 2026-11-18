@@ -1,6 +1,7 @@
 import { Route, Routes, Link, NavLink } from "react-router-dom";
 import Library from "./pages/Library";
 import Movie from "./pages/Movie";
+import Series from "./pages/Series";
 import Jobs from "./pages/Jobs";
 
 function Nav() {
@@ -27,6 +28,8 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Library />} />
         <Route path="/movies/:id" element={<Movie />} />
+        <Route path="/series/:id" element={<Series />} />
+        <Route path="/episodes/:id" element={<Movie />} />
         <Route path="/jobs" element={<Jobs />} />
         <Route
           path="*"

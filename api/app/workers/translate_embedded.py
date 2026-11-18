@@ -30,7 +30,7 @@ from app.models import (
     SubSource,
     VideoFile,
 )
-from app.scanner.naming import canonical_sub_path
+from app.scanner.naming import canonical_sub_path_for_item
 from app.workers.mkv import _CODEC_TO_EXT, extract_sub_track
 from app.workers.translate import BATCH_SIZE, _NL, _default_translate, _translate_batch
 
@@ -101,10 +101,8 @@ def do_translate_embedded(
         ext = _CODEC_TO_EXT.get(embedded.codec, "srt")
         lang = embedded.language or "und"
         extract_path = Path(
-            canonical_sub_path(
-                movie.folder_path,
-                movie.title,
-                movie.year,
+            canonical_sub_path_for_item(
+                movie,
                 lang,
                 forced=embedded.forced,
                 sdh=False,
@@ -189,10 +187,8 @@ def do_translate_embedded(
         out_srt = "\n".join(str(item) for item in srt_subs)
 
         out_path = Path(
-            canonical_sub_path(
-                movie.folder_path,
-                movie.title,
-                movie.year,
+            canonical_sub_path_for_item(
+                movie,
                 target_lang,
                 forced=embedded.forced,
                 sdh=False,

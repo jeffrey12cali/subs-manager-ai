@@ -15,6 +15,13 @@ export interface Health {
   status: string;
 }
 
+export interface Library {
+  id: string;
+  name: string;
+  type: "movies" | "series";
+  root: string;
+}
+
 export interface EmbeddedSub {
   id: number;
   video_file_id: number;
@@ -58,6 +65,11 @@ export interface MovieSummary {
   title: string;
   year: number | null;
   folder_path: string;
+  kind: "movie" | "episode";
+  library_id: string | null;
+  season_number: number | null;
+  episode_number: number | null;
+  episode_label: string | null;
   video_count: number;
   external_sub_count: number;
   external_sub_languages: string[];
@@ -74,9 +86,65 @@ export interface MovieDetail {
   title: string;
   year: number | null;
   folder_path: string;
+  kind: "movie" | "episode";
+  library_id: string | null;
+  series_id: number | null;
+  series_title: string | null;
+  season_number: number | null;
+  episode_number: number | null;
+  episode_label: string | null;
   scanned_at: string | null;
   video_files: VideoFile[];
   external_subs: ExternalSub[];
+}
+
+export interface EpisodeSummary {
+  id: number;
+  title: string;
+  episode_label: string | null;
+  season_number: number | null;
+  episode_number: number | null;
+  video_count: number;
+  external_sub_count: number;
+  external_sub_languages: string[];
+  unknown_sub_count: number;
+  embedded_sub_count: number;
+  embedded_sub_languages: string[];
+  has_subs: boolean;
+  video_formats: string[];
+  subtitle_formats: string[];
+}
+
+export interface SeasonGroup {
+  season_number: number | null;
+  episodes: EpisodeSummary[];
+}
+
+export interface SeriesSummary {
+  id: number;
+  library_id: string;
+  title: string;
+  year: number | null;
+  folder_path: string;
+  episode_count: number;
+  video_count: number;
+  external_sub_count: number;
+  external_sub_languages: string[];
+  unknown_sub_count: number;
+  embedded_sub_count: number;
+  embedded_sub_languages: string[];
+  has_subs: boolean;
+}
+
+export interface SeriesDetail {
+  id: number;
+  library_id: string;
+  title: string;
+  year: number | null;
+  folder_path: string;
+  scanned_at: string | null;
+  season_groups: SeasonGroup[];
+  other_videos: EpisodeSummary[];
 }
 
 export interface Job {
@@ -103,13 +171,26 @@ async function apiForm<T>(path: string, method: string, body: FormData): Promise
 }
 
 export const getHealth = () => api<Health>("/health");
-export const getMovies = (missingSubs = false) =>
-  api<MovieSummary[]>(`/movies/?missing_subs=${missingSubs}`);
+export const getLibraries = () => api<Library[]>("/libraries");
+export const getMovies = (missingSubs = false, libraryId?: string) => {
+  const q = new URLSearchParams({ missing_subs: String(missingSubs) });
+  if (libraryId) q.set("library", libraryId);
+  return api<MovieSummary[]>(`/movies/?${q}`);
+};
 export const getMovie = (id: number) => api<MovieDetail>(`/movies/${id}`);
+export const getSeries = (libraryId?: string) => {
+  const q = libraryId ? `?library=${encodeURIComponent(libraryId)}` : "";
+  return api<SeriesSummary[]>(`/series/${q}`);
+};
+export const getSeriesDetail = (id: number) => api<SeriesDetail>(`/series/${id}`);
 export const getJobs = () => api<Job[]>("/jobs/");
 export const getJob = (id: number) => api<Job>(`/jobs/${id}`);
-export const triggerScan = () =>
-  api<{ job_ids: number[]; roots: string[] }>("/library/scan", { method: "POST" });
+export const triggerScan = (libraryId?: string) => {
+  const q = libraryId ? `?library=${encodeURIComponent(libraryId)}` : "";
+  return api<{ job_ids: number[]; roots: string[] }>(`/library/scan${q}`, {
+    method: "POST",
+  });
+};
 
 export interface UploadSubParams {
   movieId: number;

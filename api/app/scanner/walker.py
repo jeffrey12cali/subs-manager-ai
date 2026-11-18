@@ -55,6 +55,15 @@ class WalkedMovie:
     subs: list[WalkedFile] = field(default_factory=list)
 
 
+@dataclass
+class WalkedSeries:
+    folder_path: Path
+    title: str
+    year: int | None
+    videos: list[WalkedFile] = field(default_factory=list)
+    subs: list[WalkedFile] = field(default_factory=list)
+
+
 def parse_folder_name(name: str) -> tuple[str, int] | None:
     """Returns (title, year) if `name` matches `<Title> (YYYY)`, else None."""
     m = _FOLDER_RE.match(name)
@@ -98,11 +107,55 @@ def _walk_movie_folder(folder: Path, title: str, year: int) -> WalkedMovie:
             movie.videos.append(_to_walked(path, rel_dir))
         elif ext in SUBTITLE_EXTS:
             movie.subs.append(_to_walked(path, rel_dir))
-        # Anything else (e.g. unfamiliar formats) is ignored.
+        # Anything else (e.g., unfamiliar formats) is ignored.
     # Stable ordering helps idempotency tests.
     movie.videos.sort(key=lambda w: w.path.name)
     movie.subs.sort(key=lambda w: (w.rel_dir, w.path.name))
     return movie
+
+
+def parse_series_folder_name(name: str) -> tuple[str, int | None]:
+    """Series folders may or may not have a year."""
+    parsed = parse_folder_name(name)
+    if parsed:
+        return parsed
+    return name, None
+
+
+def walk_series_library(root: Path) -> list[WalkedSeries]:
+    """Enumerate series folders under a series library root.
+
+    Directory symlinks are followed inside a series folder because Jellyfin
+    libraries often link a season directory or the whole series folder.
+    """
+    root = Path(root)
+    if not root.exists() or not root.is_dir():
+        return []
+
+    series_list: list[WalkedSeries] = []
+    for entry in sorted(root.iterdir()):
+        if entry.name.startswith("."):
+            continue
+        if not entry.is_dir():
+            continue
+        title, year = parse_series_folder_name(entry.name)
+        series_list.append(_walk_series_folder(entry, title, year))
+    return series_list
+
+
+def _walk_series_folder(folder: Path, title: str, year: int | None) -> WalkedSeries:
+    series = WalkedSeries(folder_path=folder, title=title, year=year)
+    for path, rel_dir in _iter_inner_files_follow(folder):
+        ext = path.suffix.lower()
+        if ext in _JUNK_EXTS or path.name.startswith("."):
+            continue
+        if ext in VIDEO_EXTS:
+            series.videos.append(_to_walked(path, rel_dir))
+        elif ext in SUBTITLE_EXTS:
+            series.subs.append(_to_walked(path, rel_dir))
+    series.videos.sort(key=lambda w: (w.rel_dir, w.path.name))
+    series.subs.sort(key=lambda w: (w.rel_dir, w.path.name))
+    return series
 
 
 def _iter_inner_files(folder: Path):
@@ -120,6 +173,31 @@ def _iter_inner_files(folder: Path):
             dirs.clear()
             continue
         # Skip dot-folders (e.g. .extras).
+        dirs[:] = [d for d in dirs if not d.startswith(".")]
+        rel_dir = "" if rel == Path(".") else rel.as_posix()
+        for fname in files:
+            yield Path(current) / fname, rel_dir
+
+
+def _iter_inner_files_follow(folder: Path):
+    """Yield (path, rel_dir) for a series folder, following directory links.
+
+    The depth limit matches the movie walker. A visited real-path set prevents
+    a symlink loop from hanging the scan.
+    """
+    visited: set[str] = set()
+    for current, dirs, files in os.walk(folder, followlinks=True):
+        real = os.path.realpath(current)
+        if real in visited:
+            dirs.clear()
+            continue
+        visited.add(real)
+
+        rel = Path(current).relative_to(folder)
+        depth = 0 if rel == Path(".") else len(rel.parts)
+        if depth > MAX_INNER_DEPTH:
+            dirs.clear()
+            continue
         dirs[:] = [d for d in dirs if not d.startswith(".")]
         rel_dir = "" if rel == Path(".") else rel.as_posix()
         for fname in files:

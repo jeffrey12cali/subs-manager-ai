@@ -15,7 +15,7 @@ from app.core.safe_fs import atomic_write, trash
 from app.core.srt_validator import InvalidSRT, validate_srt_bytes
 from app.models import ExternalSubtitle, Job, JobStatus, JobType, LanguageSource, Movie, SubSource
 from app.scanner.langdetect_op import detect_language
-from app.scanner.naming import canonical_sub_path, is_canonical
+from app.scanner.naming import canonical_sub_path_for_item, is_canonical_for_item
 from app.schemas import ExternalSubRead, JobRead
 
 log = logging.getLogger(__name__)
@@ -65,8 +65,8 @@ async def upload_sub(
 
     # Build canonical target path.
     target_path = Path(
-        canonical_sub_path(
-            movie.folder_path, movie.title, movie.year, language,
+        canonical_sub_path_for_item(
+            movie, language,
             forced=forced, sdh=sdh, custom_tag=custom_tag, ext=ext,
         )
     )
@@ -202,7 +202,7 @@ def rename_sub(sub_id: int, session: Session = Depends(get_session)):
     if not movie:
         raise HTTPException(404, "Movie not found")
 
-    if is_canonical(sub.filename, movie.title, movie.year):
+    if is_canonical_for_item(sub.filename, movie):
         return ExternalSubRead.model_validate(sub)
 
     if sub.language is None:
@@ -212,8 +212,8 @@ def rename_sub(sub_id: int, session: Session = Depends(get_session)):
         )
 
     target_path = Path(
-        canonical_sub_path(
-            movie.folder_path, movie.title, movie.year, sub.language,
+        canonical_sub_path_for_item(
+            movie, sub.language,
             forced=sub.forced, sdh=sub.sdh,
             custom_tag=sub.custom_tag, ext=sub.format,
         )

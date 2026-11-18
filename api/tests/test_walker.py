@@ -10,6 +10,7 @@ from pathlib import Path
 from app.scanner.walker import (
     parse_folder_name,
     walk_library,
+    walk_series_library,
 )
 
 # ----- folder name parser -----
@@ -250,3 +251,67 @@ def test_files_order_within_movie(library_root: Path):
     (folder / "Multi (2024).mkv").write_bytes(b"x")
     movie = walk_library(library_root)[0]
     assert [s.path.name for s in movie.subs] == ["a.srt", "b.srt", "c.srt"]
+
+
+# ----- series library -----
+
+
+def test_walk_series_yearless_flat(library_root: Path):
+    folder = library_root / "The Looney Tunes"
+    folder.mkdir()
+    (folder / "LT_15.mp4").write_bytes(b"x")
+    (folder / "LT_02.mp4").write_bytes(b"x")
+    (folder / "notes.txt").write_text("x")
+
+    series = walk_series_library(library_root)
+    assert len(series) == 1
+    assert series[0].title == "The Looney Tunes"
+    assert series[0].year is None
+    assert [v.path.name for v in series[0].videos] == ["LT_02.mp4", "LT_15.mp4"]
+
+
+def test_walk_series_season_folder(library_root: Path):
+    folder = library_root / "Pluribus (2025)" / "Season 01"
+    folder.mkdir(parents=True)
+    (folder / "Pluribus S01E02.mkv").write_bytes(b"x")
+    (folder / "Pluribus S01E01.mkv").write_bytes(b"x")
+
+    series = walk_series_library(library_root)[0]
+    assert series.title == "Pluribus"
+    assert series.year == 2025
+    assert [v.rel_dir for v in series.videos] == ["Season 01", "Season 01"]
+    assert [v.path.name for v in series.videos] == [
+        "Pluribus S01E01.mkv",
+        "Pluribus S01E02.mkv",
+    ]
+
+
+def test_walk_series_symlinked_season(library_root: Path, tmp_path: Path):
+    series_folder = library_root / "Yo Soy Betty la Fea (1999)"
+    series_folder.mkdir()
+    real_season = tmp_path / "betty-season-1"
+    real_season.mkdir()
+    (real_season / "Betty 1x01.mp4").write_bytes(b"x")
+    os.symlink(real_season, series_folder / "Season 01")
+
+    series = walk_series_library(library_root)[0]
+    assert [v.path.name for v in series.videos] == ["Betty 1x01.mp4"]
+
+
+def test_walk_series_symlinked_series(library_root: Path, tmp_path: Path):
+    real_series = tmp_path / "real-series"
+    real_series.mkdir()
+    (real_series / "Show S01E01.mkv").write_bytes(b"x")
+    os.symlink(real_series, library_root / "Show (2020)")
+
+    series = walk_series_library(library_root)[0]
+    assert series.title == "Show"
+    assert [v.path.name for v in series.videos] == ["Show S01E01.mkv"]
+
+
+def test_walk_series_skips_dot_and_non_directories(library_root: Path):
+    (library_root / ".hidden").mkdir()
+    (library_root / ".hidden" / "x.mkv").write_bytes(b"x")
+    (library_root / "loose.mkv").write_bytes(b"x")
+
+    assert walk_series_library(library_root) == []
