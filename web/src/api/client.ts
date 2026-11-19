@@ -171,7 +171,7 @@ async function apiForm<T>(path: string, method: string, body: FormData): Promise
 }
 
 export const getHealth = () => api<Health>("/health");
-export const getLibraries = () => api<Library[]>("/libraries");
+export const getLibraries = () => api<Library[]>("/libraries/");
 export const getMovies = (missingSubs = false, libraryId?: string) => {
   const q = new URLSearchParams({ missing_subs: String(missingSubs) });
   if (libraryId) q.set("library", libraryId);

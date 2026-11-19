@@ -11,6 +11,7 @@ from app.schemas import LibraryRead
 router = APIRouter()
 
 
+@router.get("", response_model=list[LibraryRead])
 @router.get("/", response_model=list[LibraryRead])
 def list_libraries():
     return [

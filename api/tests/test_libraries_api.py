@@ -3,6 +3,11 @@ from __future__ import annotations
 import app.core.config as config_mod
 
 
+def test_libraries_endpoint_has_no_redirect(client):
+    assert client.get("/libraries", follow_redirects=False).status_code == 200
+    assert client.get("/libraries/", follow_redirects=False).status_code == 200
+
+
 def test_lists_legacy_movie_library(client):
     body = client.get("/libraries").json()
     assert len(body) == 1
